@@ -189,6 +189,8 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.scribblesMode = None
         self.multi_label = False
+        
+        self.directory_old_segmentations = str(qt.QFileDialog.getExistingDirectory(self.parent, "Select directory to old segmentations:"))
 
     def setup(self):
         """
@@ -1110,7 +1112,28 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         segmentEditorWidget.setMasterVolumeNode(self._volumeNode)
 
         if self.info.get("labels"):
-            self.updateSegmentationMask(None, self.info.get("labels"))
+            self.updateSegmentationMask(None, self.info.get("labels")
+                                        
+            mypath = os.path.join(self.directory_old_segmentations, str(sample["id"]) + '.nii.gz')
+            
+            if os.path.exists(mypath):
+                slicer.util.loadSegmentation(mypath)
+
+                destination_node = slicer.util.getNode('segmentation_*')
+                source_node = slicer.util.getNode('*nii.gz_1')
+
+                destination_segmentations = destination_node.GetSegmentation()
+                source_segmentations = source_node.GetSegmentation()
+
+                for i in range(source_segmentations.GetNumberOfSegments()):
+                    source_segmentation = source_segmentations.GetNthSegment(i)
+                    destination_segmentation = destination_segmentations.GetNthSegment(i)
+                    name = destination_segmentation.GetName()
+
+                    destination_segmentation.DeepCopy(source_segmentation)
+                    destination_segmentation.SetName(name)
+
+                slicer.mrmlScene.RemoveNode(source_node)
 
         # Check if user wants to run auto-segmentation on new sample
         if autosegment and slicer.util.settingsValue(
