@@ -1188,6 +1188,7 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     destination_segmentation.SetName(name)
 
                 slicer.mrmlScene.RemoveNode(source_node)
+                slicer.util.selectModule('SegmentEditor')
 
         # Check if user wants to run auto-segmentation on new sample
         if autosegment and slicer.util.settingsValue(
