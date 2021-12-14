@@ -1112,7 +1112,7 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         segmentEditorWidget.setMasterVolumeNode(self._volumeNode)
 
         if self.info.get("labels"):
-            self.updateSegmentationMask(None, self.info.get("labels")
+            self.updateSegmentationMask(None, self.info.get("labels"))
                                         
             mypath = os.path.join(self.directory_old_segmentations, str(sample["id"]) + '.nii.gz')
             
