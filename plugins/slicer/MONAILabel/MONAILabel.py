@@ -1166,7 +1166,7 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.util.getNodesByClass("vtkMRMLSegmentEditorNode")[0].SetOverwriteMode(2)
 
         if self.info.get("labels"):
-            self.updateSegmentationMask(None, self.info.get("labels")
+            self.updateSegmentationMask(None, self.info.get("labels"))
                                         
             mypath = os.path.join(self.directory_old_segmentations, str(sample["id"]) + '.nii.gz')
             
