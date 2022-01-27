@@ -1495,6 +1495,11 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         logging.debug("Update Segmentation Mask from: {}".format(in_file))
         if in_file and not os.path.exists(in_file):
             return False
+        
+        ## workaround to instantly view .seg.nrrd after inference
+        slicer.modules.segmentations.logic().LoadSegmentationFromFile(in_file, False)
+        return
+        ######
 
         segmentationNode = self._segmentNode
         segmentation = segmentationNode.GetSegmentation()
