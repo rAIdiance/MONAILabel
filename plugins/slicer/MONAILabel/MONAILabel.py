@@ -1509,6 +1509,24 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         print(f"Update Segmentation Mask using Labels: {labels}")
 
         # segmentId, segment = self.currentSegment()
+        
+        # TODO: check for .seg.nrrd
+
+        source_node = slicer.modules.segmentations.logic().LoadSegmentationFromFile(in_file, False)
+        destination_node = segmentationNode
+
+        destination_segmentations = destination_node.GetSegmentation()
+        source_segmentations = source_node.GetSegmentation()
+
+        # TODO: catch destination_segmentations.GetNumberOfSegments() != source_segmentations.GetNumberOfSegments()
+
+        destination_segmentations.DeepCopy(source_segmentations)
+
+        slicer.mrmlScene.RemoveNode(source_node)
+
+
+        return
+    
         labelImage = sitk.ReadImage(in_file)
         labelmapVolumeNode = sitkUtils.PushVolumeToSlicer(labelImage, None, className="vtkMRMLLabelMapVolumeNode")
 
