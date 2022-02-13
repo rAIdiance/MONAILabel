@@ -91,7 +91,7 @@ class _ui_MONAILabelSettingsPanel(object):
         parent.registerProperty("MONAILabel/clientId", clientId, "text", str(qt.SIGNAL("textChanged(QString)")))
 
         autoRunSegmentationCheckBox = qt.QCheckBox()
-        autoRunSegmentationCheckBox.checked = True
+        autoRunSegmentationCheckBox.checked = False
         autoRunSegmentationCheckBox.toolTip = (
             "Enable this option to auto run segmentation if pre-trained model exists when Next Sample is fetched"
         )
@@ -732,9 +732,6 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     else:
                         table.setItem(n, 3, qt.QTableWidgetItem(str(val) if val else ""))
 
-                    table.item(n, 0).setBackground(qt.QColor(220, 220, 220))
-                    table.item(n, 1).setBackground(qt.QColor(240, 240, 240))
-                    table.item(n, 2).setBackground(qt.QColor(250, 250, 250))
                     # print(f"{n} => {section} => {name} => {key} => {val}")
                     n = n + 1
 
