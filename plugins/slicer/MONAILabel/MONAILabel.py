@@ -1222,6 +1222,11 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         segmentEditorWidget.setSegmentationNode(self._segmentNode)
         segmentEditorWidget.setMasterVolumeNode(self._volumeNode)
 
+        # check if user allows overlapping segments
+        if slicer.util.settingsValue("MONAILabel/allowOverlappingSegments", False, converter=slicer.util.toBool):
+            # set segment editor to allow overlaps
+            slicer.util.getNodesByClass("vtkMRMLSegmentEditorNode")[0].SetOverwriteMode(2)
+
         if self.info.get("labels"):
             self.updateSegmentationMask(None, self.info.get("labels"))
 
@@ -1577,6 +1582,8 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         print(f"Update Segmentation Mask using Labels: {labels}")
 
         # segmentId, segment = self.currentSegment()
+
+        ### Workaround for AI-preannotations to directly display in Slicer
 
         # TODO: check for .seg.nrrd
 
