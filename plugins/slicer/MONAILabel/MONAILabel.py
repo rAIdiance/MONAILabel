@@ -1150,26 +1150,29 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.updateGUIFromParameterNode()
         logging.info("Time consumed by next_sample: {0:3.1f}".format(time.time() - start))
 
-    def load_segm(self, mypath: str) -> None:
+    def load_segm(self, mypath: str, name: str) -> None:
         if os.path.exists(mypath):
-            slicer.util.loadSegmentation(mypath)
-
+            print(f'Processing {mypath}')
+            source_node = slicer.util.loadSegmentation(mypath)
             destination_node = slicer.util.getNode('segmentation_*')
-            source_node = slicer.util.getNode('*nii.gz_1')
 
             destination_segmentations = destination_node.GetSegmentation()
             source_segmentations = source_node.GetSegmentation()
 
             for i in range(source_segmentations.GetNumberOfSegments()):
                 source_segmentation = source_segmentations.GetNthSegment(i)
-                destination_segmentation = destination_segmentations.GetNthSegment(i)
-                name = destination_segmentation.GetName()
+                source_segmentation.SetName(name)
 
-                destination_segmentation.DeepCopy(source_segmentation)
-                destination_segmentation.SetName(name)
+                # AddSegment(segm, [id])
+                destination_segmentations.AddSegment(source_segmentation)
+
+                # destination_segmentation = destination_segmentations.GetNthSegment(i)
+                # name = destination_segmentation.GetName()
+                # destination_segmentation.DeepCopy(source_segmentation)
+                # destination_segmentation.SetName(name)
 
             slicer.mrmlScene.RemoveNode(source_node)
-            slicer.util.selectModule('SegmentEditor')
+            # slicer.util.selectModule('SegmentEditor')
 
     def get_fm_path_of_accession_number(self, accession_number: str) -> List[str]:
 
@@ -1201,7 +1204,7 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         #     ...
         # ]
 
-        list_of_fms: List[Dict[str, str]] = accessions[accession_number]
+        list_of_fms: List[Dict[str, str]] = accessions.get(accession_number, [])
 
         mypaths = []
         for fm in list_of_fms:
@@ -1227,18 +1230,18 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             # set segment editor to allow overlaps
             slicer.util.getNodesByClass("vtkMRMLSegmentEditorNode")[0].SetOverwriteMode(2)
 
+        print('The sample_id a.k.a. accession number is:', sample["id"])
+
         if self.info.get("labels"):
             self.updateSegmentationMask(None, self.info.get("labels"))
 
-            # Before
-            mypath = os.path.join(self.directory_old_segmentations, str(sample["id"]) + '.nii.gz')
-            self.load_segm(mypath)
-
-            # After
             accession_number: str = sample["id"]
             mypaths: List[str] = self.get_fm_path_of_accession_number(accession_number)
             for mypath in mypaths:
-                self.load_segm(mypath)
+                print('mypath: ', mypath)
+                mypath_absolute = os.path.join(self.directory_old_segmentations, mypath)
+                name = Path(mypath).stem  # e.g. '5178611/0000/ZVK_1.nii' -> 'ZVK_1'
+                self.load_segm(mypath_absolute, name)
 
         # Check if user wants to run auto-segmentation on new sample
         if autosegment and slicer.util.settingsValue(
@@ -1251,7 +1254,6 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                         self.ui.segmentationModelSelector.currentText = name
                         self.onClickSegmentation()
                         return
-
 
 
     def getPermissionForImageDataUpload(self):
