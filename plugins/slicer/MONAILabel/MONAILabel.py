@@ -1241,6 +1241,16 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 print('mypath: ', mypath)
                 mypath_absolute = os.path.join(self.directory_old_segmentations, mypath)
                 name = Path(mypath).stem  # e.g. '5178611/0000/ZVK_1.nii' -> 'ZVK_1'
+                if name.startswith('ZVK_'):
+                    name = name.replace('ZVK_', 'CVC ')
+                if name.endswith('_tip'):
+                    name = name.replace('_tip', ' tip')
+                if name.lower().startswith('magensonde'):
+                    name = name.lower().replace('magensonde', 'Gastric tube')
+                if name.startswith('trachealtube'):
+                    name = name.replace('trachealtube', 'Endotracheal tube')
+                if name.startswith('drainage_'):
+                    name = name.replace('drainage_', 'Thoracic drainage ')
                 self.load_segm(mypath_absolute, name)
 
         # Check if user wants to run auto-segmentation on new sample
