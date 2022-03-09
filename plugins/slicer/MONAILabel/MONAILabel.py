@@ -1511,6 +1511,7 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         source_node = slicer.modules.segmentations.logic().LoadSegmentationFromFile(in_file, False)
         destination_node = segmentationNode
+        volume_node = slicer.utils.GetNode(destination_node.GetName() + '.dcm')
 
         destination_segmentations = destination_node.GetSegmentation()
         source_segmentations = source_node.GetSegmentation()
@@ -1518,6 +1519,9 @@ class MONAILabelWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # TODO: catch destination_segmentations.GetNumberOfSegments() != source_segmentations.GetNumberOfSegments()
 
         destination_segmentations.DeepCopy(source_segmentations)
+        
+        if volume_node:
+            destination_node.SetReferenceImageGeometryParameterFromVolumeNode(volume_node)
 
         slicer.mrmlScene.RemoveNode(source_node)
 
