@@ -454,14 +454,16 @@ class BasicTrainTask(TrainTask):
     def pre_process(self, request, datastore: Datastore):
         return datastore.datalist()
 
-    def cleanup(self, request):
-        logger.info("Running cleanup...")
+    def get_cache_dir(self, request):
         run_id = request["run_id"]
         output_dir = os.path.join(self._model_dir, request["name"])
+        return os.path.join(output_dir, f"cache_{run_id}")
+
+    def cleanup(self, request):
+        logger.info("Running cleanup...")
 
         # delete/cleanup cache
-        cache_dir = os.path.join(output_dir, f"cache_{run_id}")
-        remove_file(cache_dir)
+        remove_file(self.get_cache_dir(request))
 
     def _device(self, context: Context):
         if context.multi_gpu:
@@ -509,6 +511,7 @@ class BasicTrainTask(TrainTask):
                         save_dict={self._model_dict_key: context.network},
                         save_key_metric=True,
                         key_metric_filename=self._key_metric_filename,
+                        n_saved=5,
                     )
                 )
 
@@ -540,6 +543,7 @@ class BasicTrainTask(TrainTask):
                     key_metric_filename=f"train_{self._key_metric_filename}"
                     if context.evaluator
                     else self._key_metric_filename,
+                    n_saved=5,
                 )
             )
 

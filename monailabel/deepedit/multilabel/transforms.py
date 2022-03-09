@@ -610,7 +610,6 @@ class AddRandomGuidanceCustomd(Randomizable, MapTransform):
 
             # Checking the number of clicks
             num_clicks = random.randint(1, 10)
-            logger.info(f"Number of simulated clicks: {num_clicks}")
             counter = 0
             keep_guidance = []
             while True:
@@ -625,50 +624,13 @@ class AddRandomGuidanceCustomd(Randomizable, MapTransform):
                         for key_label in d["label_names"].keys():
                             if key_label not in keep_guidance:
                                 self.tmp_guidance[key_label] = []
+                        logger.info(f"Number of simulated clicks: {counter}")
                         break
 
-            # Convert tmp_guidance back to json
-            for key_label in d["label_names"].keys():
-                d[self.guidance][key_label] = json.dumps(np.asarray(self.tmp_guidance[key_label]).astype(int).tolist())
-            #
-
-        return d
-
-
-# A transform to get single modality if there are more and do label sanity
-class SingleModalityLabelSanityd(MapTransform):
-    """
-    Gets single modality and perform label sanity check
-
-    Error is the label is not in the same range:
-     https://stdworkflow.com/866/runtimeerror-cudnn-error-cudnn-status-not-initialized
-    """
-
-    def __init__(
-        self,
-        keys: KeysCollection,
-        label_names=None,
-        allow_missing_keys: bool = False,
-    ):
-        super().__init__(keys, allow_missing_keys)
-        self.label_names = label_names
-
-    def __call__(self, data):
-        d = dict(data)
-        for key in self.keys:
-            if key == "label":
-                logger.info(f"Input image shape check in SingleModalityLabelSanityd transform: {d[key].shape}")
-            if key == "image":
-                meta_data = d["image_meta_dict"]
-                if meta_data["spatial_shape"].shape[0] > 3:
-                    if meta_data["spatial_shape"][4] > 0:
-                        logger.info(
-                            f"Image {meta_data['filename_or_obj'].split('/')[-1]} has more than one modality "
-                            f"- taking FIRST modality ..."
-                        )
-
-                        d[key] = d[key][..., 0]
-                        meta_data["spatial_shape"][4] = 0.0
+                # Breaking once all labels are covered
+                if len(keep_guidance) == len(d["label_names"].keys()):
+                    logger.info(f"Number of simulated clicks: {counter}")
+                    break
 
         return d
 

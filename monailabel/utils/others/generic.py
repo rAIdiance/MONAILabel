@@ -10,6 +10,7 @@
 # limitations under the License.
 
 import hashlib
+import json
 import logging
 import mimetypes
 import os
@@ -23,7 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 def file_ext(name) -> str:
-    return "".join(pathlib.Path(name).suffixes)
+    suffixes = []
+    for s in reversed(pathlib.Path(name).suffixes):
+        if len(s) > 10:
+            break
+        suffixes.append(s)
+    return "".join(reversed(suffixes)) if name else ""
 
 
 def remove_file(path: str) -> None:
@@ -70,7 +76,7 @@ def run_command(command, args=None, plogger=None):
     return process.returncode
 
 
-def init_log_config(log_config, app_dir, log_file):
+def init_log_config(log_config, app_dir, log_file, root_level=None):
     if not log_config or not os.path.exists(log_config):
         default_log_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         default_config = os.path.realpath(os.path.join(default_log_dir, "logging.json"))
@@ -89,6 +95,14 @@ def init_log_config(log_config, app_dir, log_file):
 
         with open(log_config, "w") as f:
             f.write(c)
+
+    with open(log_config, "r") as f:
+        j = json.load(f)
+
+    if root_level and j["root"]["level"] != root_level:
+        j["root"]["level"] = root_level
+        with open(log_config, "w") as f:
+            json.dump(j, f, indent=2)
 
     return log_config
 

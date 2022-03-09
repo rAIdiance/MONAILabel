@@ -10,12 +10,14 @@
 # limitations under the License.
 
 import logging
-import pathlib
 import tempfile
 
 import itk
 import numpy as np
 from monai.data import write_nifti
+
+from monailabel.utils.others.generic import file_ext
+from monailabel.utils.others.pathology import create_asap_annotations_xml, create_dsa_annotations_json
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ class Writer:
         key_extension="result_extension",
         key_dtype="result_dtype",
         key_compress="result_compress",
+        key_write_to_file="result_write_to_file",
         meta_key_postfix="meta_dict",
         nibabel=False,
     ):
@@ -77,32 +80,39 @@ class Writer:
         self.key_extension = key_extension
         self.key_dtype = key_dtype
         self.key_compress = key_compress
+        self.key_write_to_file = key_write_to_file
         self.meta_key_postfix = meta_key_postfix
         self.nibabel = nibabel
 
     def __call__(self, data):
-        file_ext = "".join(pathlib.Path(data["image_path"]).suffixes)
+        logger.setLevel(data.get("logging", "INFO").upper())
+
+        ext = file_ext(data.get("image_path"))
         dtype = data.get(self.key_dtype, None)
         compress = data.get(self.key_compress, False)
-        file_ext = data.get(self.key_extension) if data.get(self.key_extension) else file_ext
-        logger.info("Result ext: {}".format(file_ext))
+        write_to_file = data.get(self.key_write_to_file, True)
+        ext = data.get(self.key_extension) if data.get(self.key_extension) else ext
+        logger.info(f"Result ext: {ext}; write_to_file: {write_to_file}")
 
         image_np = data[self.label]
         meta_dict = data.get(f"{self.ref_image}_{self.meta_key_postfix}")
         affine = meta_dict.get("affine") if meta_dict else None
         logger.debug("Image: {}; Data Image: {}".format(image_np.shape, data[self.label].shape))
 
-        output_file = tempfile.NamedTemporaryFile(suffix=file_ext).name
-        logger.debug("Saving Image to: {}".format(output_file))
+        output_file = None
+        output_json = data.get(self.json, {})
+        if write_to_file:
+            output_file = tempfile.NamedTemporaryFile(suffix=ext).name
+            logger.debug("Saving Image to: {}".format(output_file))
 
-        # Issue with slicer:: https://discourse.itk.org/t/saving-non-orthogonal-volume-in-nifti-format/2760/22
-        if self.nibabel and file_ext.lower() in [".nii", ".nii.gz"]:
-            logger.debug("Using MONAI write_nifti...")
-            write_nifti(image_np, output_file, affine=affine, output_dtype=dtype)
-        else:
-            write_itk(image_np, output_file, affine, dtype, compress)
+            # Issue with slicer:: https://discourse.itk.org/t/saving-non-orthogonal-volume-in-nifti-format/2760/22
+            if self.nibabel and ext.lower() in [".nii", ".nii.gz"]:
+                logger.debug("Using MONAI write_nifti...")
+                write_nifti(image_np, output_file, affine=affine, output_dtype=dtype)
+            else:
+                write_itk(image_np, output_file, affine, dtype, compress)
 
-        return output_file, data.get(self.json, {})
+        return output_file, output_json
 
 
 class ClassificationWriter:
@@ -115,3 +125,53 @@ class ClassificationWriter:
         for label in data[self.label]:
             result.append(self.label_names[int(label)])
         return None, {"prediction": result}
+
+
+class PolygonWriter:
+    def __init__(
+        self,
+        label="pred",
+        json="result",
+        key_write_to_file="result_write_to_file",
+        key_annotations="annotations",
+        key_label_colors="label_colors",
+        key_output_format="output",
+    ):
+        self.label = label
+        self.json = json
+        self.key_write_to_file = key_write_to_file
+        self.key_annotations = key_annotations
+        self.key_label_colors = key_label_colors
+        self.key_output_format = key_output_format
+        self.format = format
+
+    def __call__(self, data):
+        loglevel = data.get("logging", "INFO").upper()
+        logger.setLevel(loglevel)
+
+        output = data.get(self.key_output_format, "asap")
+        logger.info(f"+++ Output Type: {output}")
+
+        write_to_file = data.get(self.key_write_to_file, True)
+        output_json = data.get(self.json, {})
+        if not write_to_file:
+            return None, output_json
+
+        json_data = {"tasks": {"tid-0": {"annotations": output_json.get(self.key_annotations, [])}}}
+
+        output_file = None
+        if output == "asap":
+            logger.info("+++ Generating ASAP XML Annotation")
+            output_file = create_asap_annotations_xml(
+                json_data, color_map=data.get(self.key_label_colors), loglevel=loglevel
+            )
+        elif output == "dsa":
+            logger.info("+++ Generating DSA JSON Annotation")
+            model = data.get("model")
+            output_file = create_dsa_annotations_json(
+                json_data, name=f"MONAILabel - {model}", color_map=data.get(self.key_label_colors), loglevel=loglevel
+            )
+        else:
+            logger.info("+++ Return Default JSON Annotation")
+
+        return output_file, output_json
