@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -8,7 +8,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import logging
 import tempfile
 
@@ -30,7 +29,7 @@ def write_itk(image_np, output_file, affine, dtype, compress):
         image_np = image_np.astype(dtype)
 
     result_image = itk.image_from_array(image_np)
-    logger.debug("ITK Image size: {}".format(itk.size(result_image)))
+    logger.debug(f"ITK Image size: {itk.size(result_image)}")
 
     # https://github.com/RSIP-Vision/medio/blob/master/medio/metadata/affine.py#L108-L121
     if affine is not None:
@@ -47,10 +46,10 @@ def write_itk(image_np, output_file, affine, dtype, compress):
         spacing = np.linalg.norm(affine[_m_key] @ np.eye(dim), axis=0)
         direction = affine[_m_key] @ np.diag(1 / spacing)
 
-        logger.debug("Affine: {}".format(affine))
-        logger.debug("Origin: {}".format(origin))
-        logger.debug("Spacing: {}".format(spacing))
-        logger.debug("Direction: {}".format(direction))
+        logger.debug(f"Affine: {affine}")
+        logger.debug(f"Origin: {origin}")
+        logger.debug(f"Spacing: {spacing}")
+        logger.debug(f"Direction: {direction}")
 
         result_image.SetDirection(itk.matrix_from_array(direction))
         result_image.SetSpacing(spacing)
@@ -92,18 +91,18 @@ class Writer:
         compress = data.get(self.key_compress, False)
         write_to_file = data.get(self.key_write_to_file, True)
         ext = data.get(self.key_extension) if data.get(self.key_extension) else ext
-        logger.info(f"Result ext: {ext}; write_to_file: {write_to_file}")
+        logger.info(f"Result ext: {ext}; write_to_file: {write_to_file}; dtype: {dtype}")
 
         image_np = data[self.label]
         meta_dict = data.get(f"{self.ref_image}_{self.meta_key_postfix}")
         affine = meta_dict.get("affine") if meta_dict else None
-        logger.debug("Image: {}; Data Image: {}".format(image_np.shape, data[self.label].shape))
+        logger.debug(f"Image: {image_np.shape}; Data Image: {data[self.label].shape}")
 
         output_file = None
         output_json = data.get(self.json, {})
         if write_to_file:
             output_file = tempfile.NamedTemporaryFile(suffix=ext).name
-            logger.debug("Saving Image to: {}".format(output_file))
+            logger.debug(f"Saving Image to: {output_file}")
 
             # Issue with slicer:: https://discourse.itk.org/t/saving-non-orthogonal-volume-in-nifti-format/2760/22
             if self.nibabel and ext.lower() in [".nii", ".nii.gz"]:
@@ -149,29 +148,31 @@ class PolygonWriter:
         loglevel = data.get("logging", "INFO").upper()
         logger.setLevel(loglevel)
 
-        output = data.get(self.key_output_format, "asap")
+        output = data.get(self.key_output_format, "dsa")
         logger.info(f"+++ Output Type: {output}")
 
-        write_to_file = data.get(self.key_write_to_file, True)
         output_json = data.get(self.json, {})
+        write_to_file = data.get(self.key_write_to_file, True)
         if not write_to_file:
             return None, output_json
 
-        json_data = {"tasks": {"tid-0": {"annotations": output_json.get(self.key_annotations, [])}}}
+        res_json = {
+            "name": f"MONAILabel Annotations - {data.get('model')}",
+            "description": data.get("description"),
+            "model": data.get("model"),
+            "location": data.get("location"),
+            "size": data.get("size"),
+            "annotations": [output_json],
+        }
 
         output_file = None
         if output == "asap":
             logger.info("+++ Generating ASAP XML Annotation")
-            output_file = create_asap_annotations_xml(
-                json_data, color_map=data.get(self.key_label_colors), loglevel=loglevel
-            )
+            output_file = create_asap_annotations_xml(res_json, loglevel=loglevel)
         elif output == "dsa":
             logger.info("+++ Generating DSA JSON Annotation")
-            model = data.get("model")
-            output_file = create_dsa_annotations_json(
-                json_data, name=f"MONAILabel - {model}", color_map=data.get(self.key_label_colors), loglevel=loglevel
-            )
+            output_file = create_dsa_annotations_json(res_json, loglevel=loglevel)
         else:
             logger.info("+++ Return Default JSON Annotation")
 
-        return output_file, output_json
+        return output_file, res_json

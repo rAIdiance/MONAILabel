@@ -9,8 +9,9 @@
 [![codecov](https://codecov.io/gh/Project-MONAI/MONAILabel/branch/main/graph/badge.svg)](https://codecov.io/gh/Project-MONAI/MONAILabel)
 
 MONAI Label is a server-client system that facilitates interactive medical image annotation by using AI. It is an
-open-source and easy-to-install ecosystem that can run locally on a machine with single or multiple GPUs. Both server and client
-work on the same/different machine. It shares the same principles with [MONAI](https://github.com/Project-MONAI).
+open-source and easy-to-install ecosystem that can run locally on a machine with single or multiple GPUs. Both server
+and client work on the same/different machine. It shares the same principles
+with [MONAI](https://github.com/Project-MONAI).
 
 [MONAI Label Demo](https://youtu.be/o8HipCgSZIw?t=1319)
 
@@ -23,7 +24,8 @@ work on the same/different machine. It shares the same principles with [MONAI](h
 - Framework for developing and deploying MONAI Label Apps to train and infer AI models
 - Compositional & portable APIs for ease of integration in existing workflows
 - Customizable labelling app design for varying user expertise
-- Annotation support via 3DSlicer & OHIF 
+- Annotation support via 3DSlicer & OHIF for radiology
+- Annotation support via QuPath & Digital Slide Archive for pathology
 - PACS connectivity via DICOMWeb
 
 ## Installation
@@ -33,29 +35,68 @@ MONAI Label supports following OS with **GPU/CUDA** enabled.
 - Ubuntu
 - [Windows](https://docs.monai.io/projects/label/en/latest/installation.html#windows)
 
+### Development version
+
+To install the _**latest features**_ using one of the following options:
+#### Git Checkout (developer mode)
+```bash
+git clone https://github.com/Project-MONAI/MONAILabel
+pip install -r MONAILabel/requirements.txt
+export PATH=$PATH:`pwd`/MONAILabel/monailabel/scripts
+```
+
+#### [Weekly Release](https://pypi.org/project/monailabel-weekly/)
+```bash
+pip install monailabel-weekly
+```
+
+#### [Docker](https://hub.docker.com/r/projectmonai/monailabel/tags)
+```bash
+docker run --gpus all --rm -ti --ipc=host --net=host projectmonai/monailabel:latest
+```
+
+#### [Release Candidate](https://pypi.org/project/monailabel/#history)
+```bash
+pip install monailabel>=0.4*
+```
+
+Once the package is installed, you can download sample `radiology` or `pathology` app and start monailabel server.
+```bash
+# download radiology app and sample dataset
+monailabel apps --download --name radiology --output apps
+monailabel datasets --download --name Task09_Spleen --output datasets
+
+# start server using radiology app with deepedit model enabled
+monailabel start_server --app apps/radiology --studies datasets/Task09_Spleen/imagesTr --conf models deepedit
+```
+
+### Current/Stable version (0.3.x)
+
 To install the [current release](https://pypi.org/project/monailabel/), you can simply run:
 
 ```bash
-  pip install monailabel
-  
-  # download sample apps/dataset
-  monailabel apps --download --name deepedit --output apps
-  monailabel datasets --download --name Task09_Spleen --output datasets
-  
-  # run server
-  monailabel start_server --app apps/deepedit --studies datasets/Task09_Spleen/imagesTr
+pip install monailabel
+
+monailabel apps --download --name deepedit --output apps
+monailabel datasets --download --name Task09_Spleen --output datasets
+
+monailabel start_server --app apps/deepedit --studies datasets/Task09_Spleen/imagesTr
 ```
 
-> If monailabel install path is not automatically determined, then you can provide explicit install path as: 
-> 
+More details refer docs: https://docs.monai.io/projects/label/en/stable/installation.html
+
+
+
+> If monailabel install path is not automatically determined, then you can provide explicit install path as:
 > `monailabel apps --prefix ~/.local`
 
 For **_prerequisites_**, other installation methods (using the default GitHub branch, using Docker, etc.), please refer
 to the [installation guide](https://docs.monai.io/projects/label/en/latest/installation.html).
 
-> Once you start the MONAI Label Server, by default server will be up and serving at http://127.0.0.1:8000/. Open the serving URL in browser. It will provide you the list of Rest APIs available. **For this, please make sure you use the HTTP protocol. HTTPS is not implemented.**
+> Once you start the MONAI Label Server, by default server will be up and serving at http://127.0.0.1:8000/. Open the serving URL in browser. It will provide you the list of Rest APIs available. **For this, please make sure you use the HTTP protocol.** _You can provide ssl arguments to run server in HTTPS mode but this functionality is not fully verified._
 
-### 3D Slicer
+## Plugins
+### [3D Slicer](https://download.slicer.org/) (radiology)
 
 Download **Preview Release** from https://download.slicer.org/ and install MONAI Label plugin from Slicer Extension
 Manager.
@@ -63,9 +104,10 @@ Manager.
 Refer [3D Slicer plugin](plugins/slicer) for other options to install and run MONAI Label plugin in 3D Slicer.
 > To avoid accidentally using an older Slicer version, you may want to _uninstall_ any previously installed 3D Slicer package.
 
-### OHIF
+### [OHIF](https://ohif.org/) (radiology)
 
-MONAI Label comes with [pre-built plugin](plugins/ohif) for [OHIF Viewer](https://github.com/OHIF/Viewers).  To use OHIF Viewer, you need to provide DICOMWeb instead of FileSystem as _studies_ when you start the server.
+MONAI Label comes with [pre-built plugin](plugins/ohif) for [OHIF Viewer](https://github.com/OHIF/Viewers). To use OHIF
+Viewer, you need to provide DICOMWeb instead of FileSystem as _studies_ when you start the server.
 > Please install [Orthanc](https://www.orthanc-server.com/download.php) before using OHIF Viewer.
 > For Ubuntu 20.x, Orthanc can be installed as `apt-get install orthanc orthanc-dicomweb`. However, you have to **upgrade to latest version** by following steps mentioned [here](https://book.orthanc-server.com/users/debian-packages.html#replacing-the-package-from-the-service-by-the-lsb-binaries)
 >
@@ -73,7 +115,7 @@ MONAI Label comes with [pre-built plugin](plugins/ohif) for [OHIF Viewer](https:
 
 ```bash
   # start server using DICOMWeb
-  monailabel start_server --app apps\deepedit --studies http://127.0.0.1:8042/dicom-web
+  monailabel start_server --app apps/radiology --studies http://127.0.0.1:8042/dicom-web
 ```
 
 > OHIF Viewer will be accessible at http://127.0.0.1:8000/ohif/
@@ -82,12 +124,42 @@ MONAI Label comes with [pre-built plugin](plugins/ohif) for [OHIF Viewer](https:
 
 > **_NOTE:_** OHIF does not yet support Multi-Label interaction for DeepEdit.
 
-### Pathology using [Digital Slide Archive (DSA)](https://digitalslidearchive.github.io/digital_slide_archive/)
+### [QuPath](https://qupath.github.io/) (pathology)
+
+You can download sample whole slide images from [https://portal.gdc.cancer.gov/repository](https://portal.gdc.cancer.gov/repository?filters=%7B%22op%22%3A%22and%22%2C%22content%22%3A%5B%7B%22op%22%3A%22in%22%2C%22content%22%3A%7B%22field%22%3A%22files.data_type%22%2C%22value%22%3A%5B%22Slide%20Image%22%5D%7D%7D%5D%7D)
+
+```bash
+  # start server using pathology over downloaded whole slide images
+  monailabel start_server --app apps/pathology --studies wsi_images
+```
+
+Refer [QuPath](plugins/qupath) for installing and running MONAILabel plugin in QuPath.
+
+![image](docs/images/qupath.jpg)
+
+### [Digital Slide Archive (DSA)](https://digitalslidearchive.github.io/digital_slide_archive/) (pathology)
+
 Refer [Pathology](sample-apps/pathology) for running a sample pathology use-case in MONAILabel.
 > **_NOTE:_** The **Pathology App** and *DSA Plugin* are under *active development*.
 
 ![image](https://user-images.githubusercontent.com/7339051/157100606-a281e038-5923-43a8-bb82-8fccae51fcff.png)
 
+## Cite
+
+If you are using MONAI Label in your research, please use the following citation:
+
+  ```bash
+@article{DiazPinto2022monailabel,
+   author = {Diaz-Pinto, Andres and Alle, Sachidanand and Ihsani, Alvin and Asad, Muhammad and
+            Nath, Vishwesh and P{\'e}rez-Garc{\'\i}a, Fernando and Mehta, Pritesh and
+            Li, Wenqi and Roth, Holger R. and Vercauteren, Tom and Xu, Daguang and
+            Dogra, Prerna and Ourselin, Sebastien and Feng, Andrew and Cardoso, M. Jorge},
+    title = {{MONAI Label: A framework for AI-assisted Interactive Labeling of 3D Medical Images}},
+  journal = {arXiv e-prints},
+     year = 2022,
+     url  = {https://arxiv.org/pdf/2203.12362.pdf}
+}
+  ```
 
 ## Contributing
 

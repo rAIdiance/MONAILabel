@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -8,86 +8,77 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import json
 import logging
 import os
-import shutil
 from distutils.util import strtobool
 from typing import Dict
 
-from lib import InferDeepedit, InferSegmentation, TrainDeepEdit, TrainSegmentation
-from monai.networks.nets import BasicUNet
+import lib.configs
 
 from monailabel.datastore.dsa import DSADatastore
 from monailabel.interfaces.app import MONAILabelApp
+from monailabel.interfaces.config import TaskConfig
 from monailabel.interfaces.datastore import Datastore
 from monailabel.interfaces.tasks.infer import InferTask
 from monailabel.interfaces.tasks.train import TrainTask
+from monailabel.utils.others.class_utils import get_class_names
 
 logger = logging.getLogger(__name__)
 
 
 class MyApp(MONAILabelApp):
     def __init__(self, app_dir, studies, conf):
-        self.label_colors = {
-            "Neoplastic cells": (255, 0, 0),
-            "Inflammatory": (255, 255, 0),
-            "Connective/Soft tissue cells": (0, 255, 0),
-            "Dead Cells": (0, 0, 0),
-            "Epithelial": (0, 0, 255),
-            "Nuclei": (0, 255, 255),
-        }
-
-        self.deep_labels = ["Nuclei"]
-        self.seg_labels = {
-            "Neoplastic cells": 1,
-            "Inflammatory": 2,
-            "Connective/Soft tissue cells": 3,
-            "Dead Cells": 4,
-            "Epithelial": 5,
-        }
-
-        self.seg_network = BasicUNet(
-            spatial_dims=2,
-            in_channels=3,
-            out_channels=len(self.seg_labels) + 1 if len(self.seg_labels) > 1 else 1,
-            features=(32, 64, 128, 256, 512, 32),
-        )
-        self.deepedit_network = BasicUNet(
-            spatial_dims=2,
-            in_channels=5,
-            out_channels=len(self.deep_labels) + 1 if len(self.deep_labels) > 1 else 1,
-            features=(32, 64, 128, 256, 512, 32),
-        )
-
         self.model_dir = os.path.join(app_dir, "model")
-        self.seg_pretrained_model = os.path.join(self.model_dir, "segmentation_nuclei_pretrained.pt")
-        self.seg_final_model = os.path.join(self.model_dir, "segmentation_nuclei.pt")
 
-        self.deepedit_pretrained_model = os.path.join(self.model_dir, "deepedit_nuclei_pretrained.pt")
-        self.deepedit_final_model = os.path.join(self.model_dir, "deepedit_nuclei.pt")
+        configs = {}
+        for c in get_class_names(lib.configs, "TaskConfig"):
+            name = c.split(".")[-2].lower()
+            configs[name] = c
 
-        use_pretrained_model = strtobool(conf.get("use_pretrained_model", "true"))
-        seg_pretrained_model_uri = f"{self.PRE_TRAINED_PATH}/pathology_segmentation_nuclei.pt"
-        deepedit_pretrained_model_uri = f"{self.PRE_TRAINED_PATH}/pathology_deepedit_nuclei.pt"
+        configs = {k: v for k, v in sorted(configs.items())}
 
-        # Path to pretrained weights
-        if use_pretrained_model:
-            logger.info(f"++ Segmentation Pretrained Model Path: {seg_pretrained_model_uri}")
-            logger.info(f"++ DeepEdit Pretrained Model Path: {deepedit_pretrained_model_uri}")
-            self.download(
-                [
-                    (self.seg_pretrained_model, seg_pretrained_model_uri),
-                    (self.deepedit_pretrained_model, deepedit_pretrained_model_uri),
-                ]
-            )
+        models = conf.get("models", "all")
+        if not models:
+            print("")
+            print("---------------------------------------------------------------------------------------")
+            print("Provide --conf models <name>")
+            print("Following are the available models.  You can pass comma (,) seperated names to pass multiple")
+            print(f"    all, {', '.join(configs.keys())}")
+            print("---------------------------------------------------------------------------------------")
+            print("")
+            exit(-1)
+
+        models = models.split(",")
+        models = [m.strip() for m in models]
+        invalid = [m for m in models if m != "all" and not configs.get(m)]
+        if invalid:
+            print("")
+            print("---------------------------------------------------------------------------------------")
+            print(f"Invalid Model(s) are provided: {invalid}")
+            print("Following are the available models.  You can pass comma (,) seperated names to pass multiple")
+            print(f"    all, {', '.join(configs.keys())}")
+            print("---------------------------------------------------------------------------------------")
+            print("")
+            exit(-1)
+
+        self.models: Dict[str, TaskConfig] = {}
+        for n in models:
+            for k, v in configs.items():
+                if self.models.get(k):
+                    continue
+                if n == k or n == "all":
+                    logger.info(f"+++ Adding Model: {k} => {v}")
+                    self.models[k] = eval(f"{v}()")
+                    self.models[k].init(k, self.model_dir, conf, None)
+
+        logger.info(f"+++ Using Models: {list(self.models.keys())}")
 
         super().__init__(
             app_dir=app_dir,
             studies=studies,
             conf=conf,
-            name="pathology",
-            description="Active Learning solution for Nuclei Instance Segmentation",
+            name="MONAILabel - Pathology",
+            description="DeepLearning models for pathology",
         )
 
     def init_remote_datastore(self) -> Datastore:
@@ -113,52 +104,31 @@ class MyApp(MONAILabelApp):
         )
 
     def init_infers(self) -> Dict[str, InferTask]:
-        return {
-            "segmentation": InferSegmentation(
-                path=[self.seg_pretrained_model, self.seg_final_model],
-                network=self.seg_network,
-                labels=self.seg_labels,
-                label_colors=self.label_colors,
-            ),
-            "deepedit": InferDeepedit(
-                path=[self.deepedit_pretrained_model, self.deepedit_final_model],
-                network=self.deepedit_network,
-                labels=self.deep_labels,
-                label_colors=self.label_colors,
-            ),
-        }
+        infers: Dict[str, InferTask] = {}
+        #################################################
+        # Models
+        #################################################
+        for n, task_config in self.models.items():
+            c = task_config.infer()
+            c = c if isinstance(c, dict) else {n: c}
+            for k, v in c.items():
+                logger.info(f"+++ Adding Inferer:: {k} => {v}")
+                infers[k] = v
+        return infers
 
     def init_trainers(self) -> Dict[str, TrainTask]:
-        config = {
-            "max_epochs": 10,
-            "train_batch_size": 1,
-            "dataset_max_region": (10240, 10240),
-            "dataset_limit": 0,
-            "dataset_randomize": True,
-        }
-        return {
-            "segmentation": TrainSegmentation(
-                model_dir=os.path.join(self.model_dir, "segmentation"),
-                network=self.seg_network,
-                load_path=self.seg_pretrained_model,
-                publish_path=self.seg_final_model,
-                config=config,
-                train_save_interval=1,
-                labels=self.seg_labels,
-            ),
-            "deepedit": TrainDeepEdit(
-                model_dir=os.path.join(self.model_dir, "deepedit"),
-                network=self.deepedit_network,
-                load_path=self.deepedit_pretrained_model,
-                publish_path=self.deepedit_final_model,
-                config=config,
-                max_train_interactions=10,
-                max_val_interactions=5,
-                val_interval=1,
-                train_save_interval=1,
-                labels=self.deep_labels,
-            ),
-        }
+        trainers: Dict[str, TrainTask] = {}
+        if strtobool(self.conf.get("skip_trainers", "false")):
+            return trainers
+
+        for n, task_config in self.models.items():
+            t = task_config.trainer()
+            if not t:
+                continue
+
+            logger.info(f"+++ Adding Trainer:: {n} => {t}")
+            trainers[n] = t
+        return trainers
 
 
 """
@@ -199,13 +169,13 @@ def main():
     studies = args.studies
 
     app = MyApp(app_dir, studies, {})
-    model = "deepedit"  # deepedit, segmentation
+    model = "deepedit_nuclei"  # deepedit_nuclei, segmentation_nuclei
     if run_train:
         app.train(
             request={
-                "name": "model_01",
+                "name": "train_01",
                 "model": model,
-                "max_epochs": 10 if model == "deepedit" else 30,
+                "max_epochs": 10 if model == "deepedit_nuclei" else 30,
                 "dataset": "CacheDataset",  # PersistentDataset, CacheDataset
                 "train_batch_size": 16,
                 "val_batch_size": 12,
@@ -219,10 +189,9 @@ def main():
 
 
 def infer_wsi(app):
+    import json
+    import shutil
     from pathlib import Path
-
-    import numpy as np
-    import openslide
 
     home = str(Path.home())
 
@@ -231,29 +200,31 @@ def infer_wsi(app):
 
     output = "dsa"
 
-    slide = openslide.OpenSlide(f"{app.studies}/{image}.svs")
-    img = slide.read_region((7737, 20086), 0, (2048, 2048)).convert("RGB")
-    image_np = np.array(img, dtype=np.uint8)
+    # slide = openslide.OpenSlide(f"{app.studies}/{image}.svs")
+    # img = slide.read_region((7737, 20086), 0, (2048, 2048)).convert("RGB")
+    # image_np = np.array(img, dtype=np.uint8)
 
     res = app.infer_wsi(
         request={
-            "model": "deepedit",  # deepedit, segmentation
+            "model": "deepedit_nuclei",  # deepedit_nuclei, segmentation_nuclei
             "image": image,  # image, image_np
             "output": output,
             "logging": "error",
             "level": 0,
-            "location": [7737, 20086],
-            "size": [5522, 3311],
+            "location": [0, 0],
+            "size": [0, 0],
             "tile_size": [2048, 2048],
             "min_poly_area": 40,
             "gpus": "all",
+            "multi_gpu": True,
+            "max_workers": 8,
         }
     )
 
     label_json = os.path.join(root_dir, f"{image}.json")
     logger.info(f"Writing Label JSON: {label_json}")
     with open(label_json, "w") as fp:
-        json.dump(res["params"], fp, indent=2)
+        json.dump(res["params"], fp)
 
     if output == "asap":
         label_xml = os.path.join(root_dir, f"{image}.xml")
@@ -263,6 +234,7 @@ def infer_wsi(app):
         label_dsa = os.path.join(root_dir, f"{image}_dsa.json")
         shutil.copy(res["file"], label_dsa)
         logger.info(f"Saving DSA JSON: {label_dsa}")
+    logger.info("All Done!")
 
 
 if __name__ == "__main__":

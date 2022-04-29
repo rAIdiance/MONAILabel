@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -257,7 +257,6 @@ class FindAllValidSlicesCustomd(MapTransform):
     """
     Find/List all valid slices in the labels.
     Label is assumed to be a 4D Volume with shape CHWD, where C=1.
-
     Args:
         label: key to the label source.
         sids: key to store slices indices having valid label map.
@@ -305,12 +304,9 @@ class FindAllValidSlicesCustomd(MapTransform):
 class AddInitialSeedPointCustomd(Randomizable, MapTransform):
     """
     Add random guidance as initial seed point for a given label.
-
     Note that the label is of size (C, D, H, W) or (C, H, W)
-
     The guidance is of size (2, N, # of dims) where N is number of guidance added.
     # of dims = 4 when C, D, H, W; # of dims = 3 when (C, H, W)
-
     Args:
         label: label source.
         guidance: key to store guidance.
@@ -695,7 +691,7 @@ class AddGuidanceFromPointsCustomd(Transform):
         # Creating guidance for all clicks
         all_guidances = dict()
         for key_label in self.label_names.keys():
-            clicks = d[key_label]
+            clicks = d.get(key_label, [])
             clicks = list(np.array(clicks).astype(int))
             all_guidances[key_label] = self._apply(clicks, factor)
         d[self.guidance] = all_guidances
@@ -783,9 +779,6 @@ class ToCheckTransformd(MapTransform):
         return d
 
 
-# For missing labels in multilabel task
-
-
 class AddInitialSeedPointMissingLabelsd(Randomizable, MapTransform):
     """
     Add random guidance as initial seed point for a given label.
@@ -863,7 +856,8 @@ class AddInitialSeedPointMissingLabelsd(Randomizable, MapTransform):
 
                 # The distance transform provides a metric or measure of the separation of points in the image.
                 # This function calculates the distance between each pixel that is set to off (0) and
-                # the nearest nonzero pixel for binary images - http://matlab.izmiran.ru/help/toolbox/images/morph14.html
+                # the nearest nonzero pixel for binary images
+                # http://matlab.izmiran.ru/help/toolbox/images/morph14.html
                 distance = distance_transform_cdt(label).flatten()
                 probability = np.exp(distance) - 1.0
 

@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -20,8 +20,6 @@ from monai.metrics import compute_meandice
 from monai.utils import min_version, optional_import
 
 Events, _ = optional_import("ignite.engine", IgniteInfo.OPT_IMPORT_VERSION, min_version, "Events")
-nib, _ = optional_import("nibabel")
-torchvision, _ = optional_import("torchvision")
 make_grid, _ = optional_import("torchvision.utils", name="make_grid")
 Image, _ = optional_import("PIL.Image")
 ImageDraw, _ = optional_import("PIL.ImageDraw")
@@ -79,7 +77,7 @@ class TensorBoardImageHandler:
         self.logger = logging.getLogger(__name__)
 
         if torch.distributed.is_initialized():
-            self.tag_name = "{}-r{}".format(self.tag_name, torch.distributed.get_rank())
+            self.tag_name = f"{self.tag_name}-r{torch.distributed.get_rank()}"
         self.metric_data: Dict[Any, Any] = dict()
 
     def attach(self, engine: Engine) -> None:
@@ -177,11 +175,9 @@ class TensorBoardImageHandler:
         metric_sum = 0
         for region in self.metric_data:
             metric = self.metric_data[region].mean()
-            self.logger.info(
-                "Epoch[{}] Metrics -- Region: {:0>2d}, {}: {:.4f}".format(epoch, region, self.tag_name, metric)
-            )
+            self.logger.info(f"Epoch[{epoch}] Metrics -- Region: {region:0>2d}, {self.tag_name}: {metric:.4f}")
 
-            self.writer.add_scalar("dice_{:0>2d}".format(region), metric, epoch)
+            self.writer.add_scalar(f"dice_{region:0>2d}", metric, epoch)
             metric_sum += metric
 
         if len(self.metric_data) > 1:
