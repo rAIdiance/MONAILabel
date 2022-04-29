@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -70,7 +70,7 @@ def run_wsi_inference(
     image: str = "",
     session_id: str = "",
     wsi: WSIInput = WSIInput(),
-    output: Optional[ResultType] = ResultType.asap,
+    output: Optional[ResultType] = ResultType.dsa,
 ):
     request = {"model": model, "image": image, "output": output.value if output else None}
 
@@ -91,7 +91,7 @@ def run_wsi_inference(
             request["image"] = session.image
             request["session"] = session.to_json()
 
-    logger.info(f"WSI Infer Request: {request}")
+    logger.debug(f"WSI Infer Request: {request}")
 
     result = instance.infer_wsi(request)
     if result is None:

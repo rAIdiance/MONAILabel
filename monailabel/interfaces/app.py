@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,16 +13,15 @@ import copy
 import logging
 import os
 import platform
+import random
 import shutil
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from distutils.util import strtobool
-from math import ceil
 from typing import Any, Callable, Dict, Optional, Sequence, Union
 
-import openslide
 import requests
 import schedule
 import torch
@@ -41,6 +40,7 @@ from monailabel.interfaces.tasks.infer import InferTask
 from monailabel.interfaces.tasks.scoring import ScoringMethod
 from monailabel.interfaces.tasks.strategy import Strategy
 from monailabel.interfaces.tasks.train import TrainTask
+from monailabel.interfaces.utils.wsi import create_infer_wsi_tasks
 from monailabel.tasks.activelearning.random import Random
 from monailabel.tasks.infer.deepgrow_2d import InferDeepgrow2D
 from monailabel.tasks.infer.deepgrow_3d import InferDeepgrow3D
@@ -89,20 +89,22 @@ class MONAILabelApp:
         self._datastore: Datastore = self.init_datastore()
 
         self._infers = self.init_infers()
-        self._trainers = self.init_trainers()
-        self._strategies = self.init_strategies()
-        self._scoring_methods = self.init_scoring_methods()
-        self._batch_infer = self.init_batch_infer()
+        self._trainers = self.init_trainers() if settings.MONAI_LABEL_TASKS_TRAIN else {}
+        self._strategies = self.init_strategies() if settings.MONAI_LABEL_TASKS_STRATEGY else {}
+        self._scoring_methods = self.init_scoring_methods() if settings.MONAI_LABEL_TASKS_SCORING else {}
+        self._batch_infer = self.init_batch_infer() if settings.MONAI_LABEL_TASKS_BATCH_INFER else {}
 
-        self._server_mode = strtobool(conf.get("server_mode", "false"))
-        self._auto_update_scoring = strtobool(conf.get("auto_update_scoring", "true"))
-        self._sessions = self._load_sessions(strtobool(conf.get("sessions", "true")))
+        self._auto_update_scoring = settings.MONAI_LABEL_AUTO_UPDATE_SCORING
+        self._sessions = self._load_sessions(load=settings.MONAI_LABEL_SESSIONS)
 
         self._infers_threadpool = (
             None
             if settings.MONAI_LABEL_INFER_CONCURRENCY < 0
             else ThreadPoolExecutor(max_workers=settings.MONAI_LABEL_INFER_CONCURRENCY, thread_name_prefix="INFER")
         )
+
+        # control call back requests
+        self._server_mode = strtobool(conf.get("server_mode", "false"))
 
     def init_infers(self) -> Dict[str, InferTask]:
         return {}
@@ -181,9 +183,9 @@ class MONAILabelApp:
             for labels in [v.get("labels", []) for v in meta["models"].values()]:
                 if labels and isinstance(labels, dict):
                     labels = [k for k, _ in sorted(labels.items(), key=lambda item: item[1])]  # type: ignore
-                for l in labels:
-                    if l not in merged:
-                        merged.append(l)
+                for label in labels:
+                    if label not in merged:
+                        merged.append(label)
             meta["labels"] = merged
 
         return meta
@@ -227,6 +229,8 @@ class MONAILabelApp:
             )
 
         request = copy.deepcopy(request)
+        request["description"] = task.description
+
         image_id = request["image"]
         datastore = datastore if datastore else self.datastore()
         if os.path.exists(image_id):
@@ -536,7 +540,7 @@ class MONAILabelApp:
         if not self._sessions:
             return
         count = self._sessions.remove_expired()
-        logger.debug("Total sessions cleaned up: {}".format(count))
+        logger.debug(f"Total sessions cleaned up: {count}")
 
     def sessions(self):
         return self._sessions
@@ -586,10 +590,11 @@ class MONAILabelApp:
         if not task:
             raise MONAILabelException(
                 MONAILabelError.INVALID_INPUT,
-                f"wSI/Inference Task is not Initialized. There is no model '{model}' available",
+                f"WSI/Inference Task is not Initialized. There is no model '{model}' available",
             )
 
-        image = request["image"]
+        img_id = request["image"]
+        image = img_id
         request_c = copy.deepcopy(task.config())
         request_c.update(request)
         request = request_c
@@ -606,74 +611,82 @@ class MONAILabelApp:
             image = datastore.get_image_uri(request["image"])
 
         start = time.time()
-        logger.info(f"WSI Infer Request (final): {request}")
-        infer_tasks = self._create_infer_wsi_tasks(request, image)
+        infer_tasks = create_infer_wsi_tasks(request, image)
+        if len(infer_tasks) > 1:
+            logger.info(f"WSI Infer Request (final): {request}")
+
         logger.debug(f"Total WSI Tasks: {len(infer_tasks)}")
         request["logging"] = request.get("logging", "WARNING" if len(infer_tasks) > 1 else "INFO")
 
-        multi_gpu = request.get("multi_gpu", False)
+        multi_gpu = request.get("multi_gpu", True)
         multi_gpus = request.get("gpus", "all")
         gpus = (
             list(range(torch.cuda.device_count())) if not multi_gpus or multi_gpus == "all" else multi_gpus.split(",")
         )
         device_ids = [f"cuda:{id}" for id in gpus] if multi_gpu else [request.get("device", "cuda")]
-        logger.info(f"MultiGpu: {multi_gpu}; Using Device(s): {device_ids}")
 
-        res_json = {"tasks": {}}
+        res_json = {"annotations": [None] * len(infer_tasks)}
         for idx, t in enumerate(infer_tasks):
             t["logging"] = request["logging"]
-            t["device"] = device_ids[idx % len(device_ids)]
+            t["device"] = (
+                device_ids[idx % len(device_ids)]
+                if len(infer_tasks) > 1
+                else device_ids[random.randint(0, len(device_ids) - 1)]
+            )
 
-        if len(infer_tasks) > 1 and len(device_ids) > 1:
-            with ThreadPoolExecutor(max_workers=len(device_ids), thread_name_prefix="WSI Infer") as executor:
+        total = len(infer_tasks)
+        max_workers = request.get("max_workers", len(device_ids))
+
+        if len(infer_tasks) > 1 and (max_workers == 0 or max_workers > 1):
+            logger.info(f"MultiGpu: {multi_gpu}; Using Device(s): {device_ids}; Max Workers: {max_workers}")
+            futures = {}
+            with ThreadPoolExecutor(max_workers if max_workers else None, "WSI Infer") as executor:
                 for t in infer_tasks:
-                    tid = t["id"]
-                    future = executor.submit(self._run_infer_wsi_task, t)
+                    futures[t["id"]] = t, executor.submit(self._run_infer_wsi_task, t)
+
+                for tid, (t, future) in futures.items():
                     res = future.result()
-                    res_json["tasks"][tid] = res
-                    logger.info(f"{tid} => {len(res_json)} / {len(infer_tasks)}; Latencies: {res.get('latencies')}")
+                    res_json["annotations"][tid] = res
+                    finished = len([a for a in res_json["annotations"] if a])
+                    logger.info(
+                        f"{img_id} => {tid} => {t['device']} => {finished} / {total}; Latencies: {res.get('latencies')}"
+                    )
         else:
             for t in infer_tasks:
                 tid = t["id"]
                 res = self._run_infer_wsi_task(t)
-                res_json["tasks"][tid] = res
-                logger.info(f"{tid} => {len(res_json)} / {len(infer_tasks)}; Latencies: {res.get('latencies')}")
+                res_json["annotations"][tid] = res
+                finished = len([a for a in res_json["annotations"] if a])
+                logger.info(
+                    f"{img_id} => {tid} => {t['device']} => {finished} / {total}; Latencies: {res.get('latencies')}"
+                )
 
         latency_total = time.time() - start
-        logger.debug("WSI Infer Time Taken: {:.4f}".format(latency_total))
+        logger.debug(f"WSI Infer Time Taken: {latency_total:.4f}")
 
-        res_json.update(
-            {
-                "latencies": {
-                    "total": round(latency_total, 2),
-                },
-            }
-        )
+        res_json["name"] = f"MONAILabel Annotations - {model}"
+        res_json["description"] = task.description
+        res_json["model"] = request.get("model")
+        res_json["location"] = request.get("location")
+        res_json["size"] = request.get("size")
+        res_json["latencies"] = {"total": round(latency_total, 2)}
 
         res_file = None
-        output = request.get("output", "asap")
+        output = request.get("output", "dsa")
         logger.debug(f"+++ WSI Inference Output Type: {output}")
 
         loglevel = request.get("logging", "INFO").upper()
         if output == "asap":
             logger.debug("+++ Generating ASAP XML Annotation")
-            res_file = create_asap_annotations_xml(res_json, color_map=request.get("label_colors"), loglevel=loglevel)
+            res_file = create_asap_annotations_xml(res_json, loglevel)
         elif output == "dsa":
             logger.debug("+++ Generating DSA JSON Annotation")
-            model = request.get("model")
-            task = self._infers.get(model)
-            res_file = create_dsa_annotations_json(
-                res_json,
-                name=f"MONAILabel - {model}",
-                description=task.description,
-                color_map=request.get("label_colors"),
-                loglevel=loglevel,
-            )
+            res_file = create_dsa_annotations_json(res_json, loglevel)
         else:
             logger.debug("+++ Return Default JSON Annotation")
 
         if len(infer_tasks) > 1:
-            logger.info("Total Time Taken: {:.4f}; Total Infer Time: {:.4f}".format(time.time() - start, latency_total))
+            logger.info(f"Total Time Taken: {time.time() - start:.4f}; Total Infer Time: {latency_total:.4f}")
         return {"file": res_file, "params": res_json}
 
     def _run_infer_wsi_task(self, task):
@@ -686,60 +699,3 @@ class MONAILabelApp:
 
         res = self.infer(req)
         return res.get("params", {})
-
-    def _create_infer_wsi_tasks(self, request, image):
-        tile_size = request.get("tile_size", (2048, 2048))
-        tile_size = [int(p) for p in tile_size]
-
-        # TODO:: Auto-Detect based on WSI dimensions instead of 3000
-        min_poly_area = request.get("min_poly_area", 3000)
-
-        location = request.get("location", [0, 0])
-        size = request.get("size", [0, 0])
-        bbox = [[location[0], location[1]], [location[0] + size[0], location[1] + size[1]]]
-        bbox = bbox if bbox and sum(bbox[0]) + sum(bbox[1]) > 0 else None
-        level = request.get("level", 0)
-
-        with openslide.OpenSlide(image) as slide:
-            w, h = slide.dimensions
-        logger.debug(f"Input WSI Image Dimensions: ({w} x {h}); Tile Size: {tile_size}")
-
-        x, y = 0, 0
-        if bbox:
-            x, y = int(bbox[0][0]), int(bbox[0][1])
-            w, h = int(bbox[1][0] - x), int(bbox[1][1] - y)
-            logger.debug(f"WSI Region => Location: ({x}, {y}); Dimensions: ({w} x {h})")
-
-        cols = ceil(w / tile_size[0])  # COL
-        rows = ceil(h / tile_size[1])  # ROW
-
-        if rows * cols > 1:
-            logger.info(f"Total Tiles to infer {rows} x {cols}: {rows * cols}")
-
-        infer_tasks = []
-        count = 0
-        pw, ph = tile_size[0], tile_size[1]
-        for row in range(rows):
-            for col in range(cols):
-                tx = col * pw + x
-                ty = row * ph + y
-
-                tw = min(pw, x + w - tx)
-                th = min(ph, y + h - ty)
-
-                task = copy.deepcopy(request)
-                task.update(
-                    {
-                        "id": count,
-                        "image": image,
-                        "tile_size": tile_size,
-                        "min_poly_area": min_poly_area,
-                        "coords": (row, col, tx, ty, tw, th),
-                        "location": (tx, ty),
-                        "level": level,
-                        "size": (tw, th),
-                    }
-                )
-                infer_tasks.append(task)
-                count += 1
-        return infer_tasks

@@ -1,4 +1,4 @@
-# Copyright 2020 - 2021 MONAI Consortium
+# Copyright (c) MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -21,8 +21,6 @@ from monailabel.scribbles.infer import HistogramBasedGraphCut
 from monailabel.scribbles.transforms import (
     AddBackgroundScribblesFromROId,
     ApplyGraphCutOptimisationd,
-    ApplyISegGraphCutPostProcd,
-    ApplySimpleCRFOptimisationd,
     InteractiveSegmentationTransform,
     MakeISegUnaryd,
     MakeLikelihoodFromScribblesHistogramd,
@@ -95,7 +93,7 @@ def generate_label_with_noise(height, width, label_key="label", noisy_key="noisy
                 tmp_list.append(noisy)
             noisy = np.concatenate(tmp_list, axis=1)
     else:
-        raise ValueError("unrecognised num_slices selected [{}]".format(num_slices))
+        raise ValueError(f"unrecognised num_slices selected [{num_slices}]")
 
     pred = label
     label = np.concatenate([1 - label, label], axis=0)
@@ -299,25 +297,17 @@ class TestScribblesTransforms(unittest.TestCase):
     @parameterized.expand(TEST_CASE_OPTIM_TX)
     def test_optimisation_transforms(self, input_param, test_input, output, expected_shape):
         input_param.update({"post_proc_label": "pred"})
-        for current_tx in [ApplyGraphCutOptimisationd, ApplySimpleCRFOptimisationd]:
+        for current_tx in [ApplyGraphCutOptimisationd]:
             result = current_tx(**input_param)(test_input)
-            np.testing.assert_equal(output["target"], result["pred"])
+
+            # removed assert_equal as this is non-deterministic func
+            # np.testing.assert_equal(output["target"], result["pred"])
+
             self.assertTupleEqual(expected_shape, result["pred"].shape)
 
         with self.assertRaises(ValueError):
             test_input["prob"] = np.random.rand(3, 128, 128, 128)
             result = ApplyGraphCutOptimisationd(**input_param)(test_input)
-
-    @parameterized.expand(TEST_CASE_ISEG_OPTIM_TX)
-    def test_interactive_graphcut_optimisation_transform(self, input_param, test_input, output, expected_shape):
-        input_param.update({"post_proc_label": "pred"})
-        result = ApplyISegGraphCutPostProcd(**input_param)(test_input)
-        np.testing.assert_equal(output["target"], result["pred"])
-        self.assertTupleEqual(expected_shape, result["pred"].shape)
-
-        with self.assertRaises(ValueError):
-            test_input["prob"] = np.random.rand(3, 128, 128, 128)
-            result = ApplyISegGraphCutPostProcd(**input_param)(test_input)
 
     @parameterized.expand(TEST_CASE_MAKE_ISEG_UNARY_TX)
     def test_make_iseg_unary_transform(self, input_param, test_input, output, expected_shape):
